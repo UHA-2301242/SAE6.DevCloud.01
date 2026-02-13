@@ -1,0 +1,10 @@
+{
+    "yaml.schemas": {
+        "file:///c%3A/Users/Anna/.vscode/extensions/continue.continue-1.2.11-win32-x64/config-yaml-schema.json": [
+            ".continue/**/*.yaml"
+        ],
+        "https://raw.githubusercontent.com/canonical/cloud-init/main/cloudinit/config/schemas/versions.schema.cloud-config.json": "file:///c%3A/Users/Anna/Documents/IUT/SAE6.DevCloud.01/terraform/assets/cloud-init.yml",
+        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/tasks": "file:///c%3A/Users/Anna/Documents/IUT/SAE6.DevCloud.01/ansible/tasks/kubernetes.yml",
+        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/playbook": "file:///c%3A/Users/Anna/Documents/IUT/SAE6.DevCloud.01/ansible/book.yml"
+    }
+}

@@ -1,0 +1,140 @@
+- name: Install K3s server (master)
+  hosts: k8s_master
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_version: "v1.35.1+k3s1"
+    k3s_install_script_url: "https://get.k3s.io"
+    # K3s will use the Docker daemon that is already present
+    k3s_server_args: >-
+      --docker
+      --flannel-backend=vxlan
+      --disable=traefik
+      --write-kubeconfig-mode=644
+    # --cluster-cidr=10.129.4.0/24
+    # --service-cidr=10.129.5.0/24
+
+  tasks:
+    - name: Download K3s install script
+      get_url:
+        url: "{{ k3s_install_script_url }}"
+        dest: /tmp/k3s_install.sh
+        mode: "0755"
+
+    - name: Install K3s server
+      command:
+        cmd: /tmp/k3s_install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_EXEC: "server {{ k3s_server_args }}"
+      args:
+        creates: /usr/local/bin/k3s   # idempotency – skip if already installed
+
+    - name: Wait for K3s node token to be generated
+      wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+        timeout: 120
+
+    - name: Read K3s node token
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_raw
+
+    - name: Expose token and master IP as facts for worker play
+      set_fact:
+        k3s_token: "{{ k3s_token_raw['content'] | b64decode | trim }}"
+        k3s_master_ip: "{{ ansible_default_ipv4.address }}"
+
+    - name: Ensure K3s server service is enabled and running
+      systemd:
+        name: k3s
+        enabled: true
+        state: started
+
+    - name: Wait for control-plane to become ready
+      command:
+        cmd: k3s kubectl get nodes
+      register: node_check
+      until: node_check.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Fetch kubeconfig for local use
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "./kubeconfig_{{ inventory_hostname }}.yaml"
+        flat: true
+
+
+##############################################################################
+# 3. Install and configure K3s agents (workers)
+##############################################################################
+- name: Install K3s agent (workers)
+  hosts: k8s_workers
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_version: "v1.35.1+k3s1"
+    k3s_install_script_url: "https://get.k3s.io"
+
+  tasks:
+    - name: Retrieve master connection details from master host facts
+      set_fact:
+        k3s_master_url: "https://{{ hostvars[groups['k8s_master'][0]]['k3s_master_ip'] }}:6443"
+        k3s_join_token: "{{ hostvars[groups['k8s_master'][0]]['k3s_token'] }}"
+
+    - name: Download K3s install script
+      get_url:
+        url: "{{ k3s_install_script_url }}"
+        dest: /tmp/k3s_install.sh
+        mode: "0755"
+
+    - name: Install K3s agent and join the cluster
+      command:
+        cmd: /tmp/k3s_install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_EXEC: "agent --docker"
+        K3S_URL: "{{ k3s_master_url }}"
+        K3S_TOKEN: "{{ k3s_join_token }}"
+      args:
+        creates: /usr/local/bin/k3s   # idempotency
+
+    - name: Ensure K3s agent service is enabled and running
+      systemd:
+        name: k3s-agent
+        enabled: true
+        state: started
+
+
+##############################################################################
+# 4. Verify the cluster from the master
+##############################################################################
+- name: Verify cluster health
+  hosts: k8s_master
+  become: true
+  gather_facts: false
+
+  tasks:
+
+    - name: Wait for all nodes to register and become Ready
+      command:
+        cmd: >
+          k3s kubectl get nodes
+          --no-headers
+          -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[-1].type'
+      register: node_status
+      until: >
+        (node_status.stdout_lines | length) ==
+        (groups['k8s_master'] | length + groups['k8s_workers'] | length)
+        and 'NotReady' not in node_status.stdout
+      retries: 30
+      delay: 15
+      changed_when: false
+
+    - name: Print cluster node status
+      debug:
+        msg: "{{ node_status.stdout_lines }}"

@@ -1,0 +1,106 @@
+- name: Configuration initiale de toutes les VMs
+  hosts: gitlab
+  become: true
+
+  tasks:
+    - name: Create /srv/gitlab
+      file:
+        path: /srv/gitlab
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Copy Gitlab compose file
+      template:
+        src: ../assets/compose.gitlab.yml
+        dest: /srv/gitlab/compose.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure SSL directory exists
+      file:
+        path: "/root/ssl"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Generate private key
+      command: openssl genrsa -out /root/ssl/{{ ansible_host }}.key 2048
+      args:
+        creates: "/root/ssl/{{ ansible_host }}.key"
+
+    - name: Generate self-signed certificate with host IP as CN and SAN
+      command: >
+        openssl req -x509 -new -nodes
+        -key /root/ssl/{{ ansible_host }}.key
+        -sha256 -days 365
+        -out /root/ssl/{{ ansible_host }}.crt
+        -subj "/CN={{ ansible_host }}"
+        -addext "subjectAltName = IP:{{ ansible_host }}"
+      args:
+        creates: "/root/ssl/{{ ansible_host }}.crt"
+
+    - name: Prepare SSL certificates for Gitlab
+      shell: >
+        sudo mkdir -p /etc/gitlab/ssl &&
+        sudo chmod 755 /etc/gitlab/ssl &&
+        sudo cp /root/ssl/{{ ansible_host }}.key /root/ssl/{{ ansible_host }}.crt /etc/gitlab/ssl/ &&
+        sudo chmod 644 /etc/gitlab/ssl/{{ ansible_host }}.crt &&
+        sudo chmod 600 /etc/gitlab/ssl/{{ ansible_host }}.key
+
+    - name: Start Gitlab
+      community.docker.docker_compose_v2:
+        project_src: /srv/gitlab
+        state: present
+
+    - name: Wait for port 443
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 443
+        timeout: 500
+
+    - name: Copy Gitlab's certificate to trusted local CA store
+      file:
+        src: /etc/gitlab/ssl/{{ ansible_host }}.crt
+        dest: /usr/local/share/ca-certificates/{{ ansible_host }}.crt
+        state: link
+
+    - name: Copy Gitlab's certificate locally
+      fetch:
+        src: /etc/gitlab/ssl/{{ ansible_host }}.crt
+        dest: ../assets/gitlab.crt
+        flat: true
+
+    - name: Run update-ca-certificates
+      shell: update-ca-certificates
+
+    - name: Retrieve GitLab initial root password
+      slurp:
+        src: /etc/gitlab/initial_root_password
+      register: gitlab_password_file
+
+    - name: Extract password from file content
+      set_fact:
+        gitlab_root_password: >-
+          {{
+            (gitlab_password_file.content | b64decode).splitlines()
+            | select('match', '^Password:')
+            | map('regex_replace', '^Password:\\s*', '')
+            | first
+            | default('', true)
+          }}
+
+    - name: Show password
+      debug:
+        var: gitlab_root_password
+
+    - name: Create password file on controller
+      copy:
+        content: "{{ gitlab_root_password }}"
+        dest: "./gitlab_root_password.txt"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true

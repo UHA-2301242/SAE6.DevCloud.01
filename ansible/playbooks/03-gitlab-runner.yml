@@ -1,0 +1,66 @@
+- name: Configuration initiale de toutes les VMs
+  hosts: gitlab
+  become: true
+  vars_prompt:
+    - name: runner_url
+      private: false
+      prompt: Insert your Runner URL here (Generated through web portal)
+      salt_size: 8
+      unsafe: false
+    - name: runner_token
+      private: true
+      prompt: Insert your Runner Token here (Generated through web portal)
+      salt_size: 8
+      unsafe: false
+
+  tasks:
+    - name: Create /srv/gitlab/runner
+      file:
+        path: /srv/gitlab/runner
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Download Gitlab Runner install script
+      uri:
+        url: https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh
+        return_content: true
+        status_code: [200, 304]
+        dest: /srv/gitlab/runner/script.deb.sh
+
+    - name: Run Gitlab Runner install script
+      shell: bash /srv/gitlab/runner/script.deb.sh
+
+    - name: Install Gitlab Runner
+      apt:
+        name: gitlab-runner
+        state: present
+
+    - name: Add gitlab-runner to Docker group
+      user:
+        name: gitlab-runner
+        groups: docker
+        append: yes
+
+    - name: Create directory
+      file:
+        path: /etc/docker/certs.d/{{ ansible_host }}:5050
+        state: directory
+
+    - name: Copy certificates
+      file:
+        src: /etc/gitlab/ssl/{{ ansible_host }}.crt
+        dest: /etc/docker/certs.d/{{ ansible_host }}:5050/{{ ansible_host }}.crt
+        state: link
+
+    - name: Register Runner
+      shell: >-
+        gitlab-runner register -n --url {{ runner_url }} --token {{ runner_token }}
+        --executor docker --docker-image alpine:lateset --docker-privileged
+        --request-concurrency 4
+
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted

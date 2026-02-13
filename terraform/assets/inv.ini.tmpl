@@ -1,0 +1,22 @@
+# File generated automatically by Terraform/OpenTofu
+
+gitlab ansible_user=ansible ansible_host=${gitlab_ip} ansible_port=2222 ansible_ssh_private_key_file=../keys/ansible.key
+
+[k8s_master]
+alpha ansible_user=ansible ansible_host=${alpha_ip} ansible_port=2222 ansible_ssh_private_key_file=../keys/ansible.key
+
+[k8s_workers]
+beta ansible_user=ansible ansible_host=${beta_ip} ansible_port=2222 ansible_ssh_private_key_file=../keys/ansible.key
+charlie ansible_user=ansible ansible_host=${charlie_ip} ansible_port=2222 ansible_ssh_private_key_file=../keys/ansible.key
+
+[k8s:children]
+k8s_master
+k8s_workers
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+
+# Configuration GitLab
+gitlab_external_url=http://${gitlab_ip}
+gitlab_registry_external_url=http://${gitlab_ip}:5050

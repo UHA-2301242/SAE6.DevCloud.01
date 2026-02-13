@@ -1,0 +1,32 @@
+- name: Configuration initiale de toutes les VMs
+  hosts: gitlab
+  become: true
+
+  tasks:
+    - name: Read GitLab initial root password file
+      slurp:
+        src: /etc/gitlab/initial_root_password
+      register: gitlab_password_file
+
+    - name: Extract password from file content
+      set_fact:
+        gitlab_root_password: >-
+          {{
+            (gitlab_password_file.content | b64decode).splitlines()
+            | select('match', '^Password:')
+            | map('regex_replace', '^Password:\\s*', '')
+            | first
+            | default('', true)
+          }}
+
+    - name: Show password
+      debug:
+        var: gitlab_root_password
+
+    - name: Create password file on controller
+      copy:
+        content: "{{ gitlab_root_password }}\n"
+        dest: "./gitlab_root_password.txt"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true

@@ -1,0 +1,58 @@
+- name: Install K3s server (master)
+  hosts: k8s_master
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_version: "v1.35.1+k3s1"
+    k3s_install_script_url: "https://get.k3s.io"
+    # K3s will use the Docker daemon that is already present
+    k3s_server_args: >-
+      --docker
+      --flannel-backend=vxlan
+      --disable=traefik
+      --write-kubeconfig-mode=644
+    # --cluster-cidr=10.129.4.0/24
+    # --service-cidr=10.129.5.0/24
+
+  tasks:
+    - name: Upload sae6 DaemonSet manifest to master
+      ansible.builtin.copy:
+        src: "../assets/sae6.yml"
+        dest: "/root/sae6.yml"
+        mode: "0644"
+
+    - name: Apply sae6 DaemonSet manifest
+      ansible.builtin.command:
+        cmd: "k3s kubectl apply -f /root/sae6.yml"
+      register: kubectl_apply
+      changed_when: "'created' in kubectl_apply.stdout or 'configured' in kubectl_apply.stdout"
+
+    - name: Show apply output
+      ansible.builtin.debug:
+        msg: "{{ kubectl_apply.stdout_lines }}"
+
+    - name: Wait for sae6 DaemonSet pods to be ready
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl rollout status daemonset/sae6
+          --timeout=120s
+      register: rollout_status
+      changed_when: false
+
+    - name: Show rollout status
+      ansible.builtin.debug:
+        msg: "{{ rollout_status.stdout_lines }}"
+
+    - name: Confirm one pod is running per node
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl get pods -l app=sae6
+          -o wide
+          --no-headers
+      register: pod_list
+      changed_when: false
+
+    - name: Print pod distribution across nodes
+      ansible.builtin.debug:
+        msg: "{{ pod_list.stdout_lines }}"

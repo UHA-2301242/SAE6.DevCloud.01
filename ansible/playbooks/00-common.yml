@@ -1,0 +1,133 @@
+- name: Configuration initiale de toutes les VMs
+  hosts: all
+  become: true
+  tasks:
+    - name: Change user password
+      user:
+        name: ubuntu
+        update_password: always
+        password: "{{ 'ubuntu' | password_hash('sha512', 'mysecretsalt') }}"
+
+    - name: System update & upgrade
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install base packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - git
+          - gnupg
+          - htop
+          - nano
+          - net-tools
+          - wget
+        state: present
+
+    - name: Set hostname
+      hostname:
+        name: "{{ inventory_hostname_short }}"
+
+    - name: Load kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: Persist kernel modules across reboots
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k3s.conf
+        content: |
+          br_netfilter
+          overlay
+        mode: "0644"
+
+    - name: k8s tasks
+      when: "'k8s' in group_names"
+      block:
+        - name: Deactivate ufw
+          ufw:
+            state: disabled
+
+        - name: Disable swap
+          command: swapoff -a
+
+        - name: Disable swap (permanently)
+          lineinfile:
+            path: /etc/fstab
+            regexp: '^([^#].*\s+swap\s+.*)$'
+            line: '# \1'
+            backrefs: yes
+
+        - name: Configure boot-up modules
+          copy:
+            dest: /etc/modules-load.d/k8s.conf
+            content: |
+              br_netfilter
+              overlay
+
+        - name: Configure sysctl for Kubernetes
+          loop:
+            - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+            - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+            - { name: 'net.ipv4.ip_forward', value: '1' }
+          sysctl:
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+            state: present
+            reload: yes
+
+    - name: Set static IP
+      block:
+        - name: Get active interface
+          shell: ip route get 1.1.1.1 | awk '{print $5; exit}'
+          register: active_iface
+
+        - name: Get current IPv4 address
+          shell: ip -4 addr show {{ active_iface.stdout }} | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
+          register: current_ip
+
+        - name: Get current gateway
+          shell: ip route | grep default | awk '{print $3}'
+          register: current_gw
+
+        - name: Get current netmask (CIDR)
+          shell: ip -4 addr show {{ active_iface.stdout }} | grep -oP '(?<=inet\s)\d+(\.\d+){3}/\d+' | cut -d/ -f2
+          register: current_cidr
+
+        - name: Get current DNS servers
+          shell: resolvectl dns | awk '{for(i=2;i<=NF;i++) print $i}' | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}'
+          register: current_dns
+
+        - name: Build DNS yaml list
+          set_fact:
+            dns_yaml: "{{ current_dns.stdout_lines | join(', ') }}"
+
+        - name: Write netplan static config
+          copy:
+            dest: /etc/netplan/99-static-ip.yaml
+            content: |
+              network:
+                version: 2
+                renderer: networkd
+                ethernets:
+                  {{ active_iface.stdout }}:
+                    dhcp4: no
+                    addresses:
+                      - {{ current_ip.stdout }}/{{ current_cidr.stdout }}
+                    routes:
+                      - to: default
+                        via: {{ current_gw.stdout }}
+                    nameservers:
+                      addresses: [{{ dns_yaml }},1.1.1.1]
+
+        - name: Apply netplan
+          command: netplan apply
+
+    - name: Reboot virtual machines
+      reboot:
+        reboot_timeout: 300

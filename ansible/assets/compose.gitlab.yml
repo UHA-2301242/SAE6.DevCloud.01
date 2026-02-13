@@ -1,0 +1,37 @@
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:18.8.4-ce.0
+    container_name: gitlab
+    restart: unless-stopped
+    hostname: '{{ ansible_host }}'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        letsencrypt['enable'] = false
+        external_url 'https://{{ ansible_host }}'
+        registry_external_url 'http://{{ ansible_host }}:5050'
+        registry['enable'] = true
+        gitlab_rails['registry_enabled'] = true
+        gitlab_rails['registry_host'] = "{{ ansible_host }}"
+        gitlab_rails['registry_port'] = "5050"
+
+        puma['worker_processes'] = 2
+        puma['max_threads'] = 4
+        puma['min_threads'] = 1
+        sidekiq['max_concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        node_exporter['enable'] = false
+        gitlab_rails['env'] = {
+          'MALLOC_CONF' => 'dirty_decay_ms:1000,muzzy_decay_ms:1000'
+        }
+
+    ports:
+      - 22:22
+      - 80:80
+      - 443:443
+      - 5050:5050
+    volumes:
+      - /etc/gitlab:/etc/gitlab
+      - /var/log/gitlab:/var/log/gitlab
+      - /var/opt/gitlab:/var/opt/gitlab
+    shm_size: 256m

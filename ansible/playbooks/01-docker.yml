@@ -1,0 +1,78 @@
+- name: Configuration initiale de toutes les VMs
+  hosts: all
+  become: true
+  tasks:
+    - name: Remove redudent packages
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+          - docker-compose-v2
+          - docker-doc
+          - podman-docker
+          - containerd
+          - runc
+        state: absent
+
+    - name: Install dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+
+    - name: Whatever this does...
+      shell: install -m 0755 -d /etc/apt/keyrings
+
+    - name: Add Docker's GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+
+    # - name: Add Docker repository
+    #   apt_repository:
+    #     repo: deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble main
+    #     filename: docker
+    #     state: present
+
+    - name: Create Docker repo file
+      shell: |
+        tee /etc/apt/sources.list.d/docker.sources <<EOF
+        Types: deb
+        URIs: https://download.docker.com/linux/ubuntu
+        Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+        Components: stable
+        Signed-By: /etc/apt/keyrings/docker.asc
+        EOF
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: latest
+        update_cache: yes
+
+    - name: Create Docker config directory
+      file:
+        path: /etc/docker
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+
+    - name: Copy Docker config
+      template:
+        src: ../assets/daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Ensure Docker service is enabled
+      service:
+        name: docker
+        enabled: true
+        state: restarted

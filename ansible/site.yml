@@ -1,0 +1,14 @@
+- name: Common operation
+  import_playbook: playbooks/00-common.yml
+
+- name: Install Docker
+  import_playbook: playbooks/01-docker.yml
+
+- name: Install Gitlab
+  import_playbook: playbooks/02-gitlab.yml
+
+- name: Install Gitlab Runner
+  import_playbook: playbooks/03-gitlab-runner.yml
+
+- name: Install Kubernetes
+  import_playbook: playbooks/04-kubernetes.yml

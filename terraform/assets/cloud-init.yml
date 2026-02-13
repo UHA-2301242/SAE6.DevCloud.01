@@ -1,0 +1,35 @@
+#cloud-config
+preserve_hostname: true
+timezone: Europe/Paris
+
+users:
+  - name: ubuntu
+    groups:
+      - sudo
+    shell: /bin/bash
+    plain_text_passwd: ubuntu
+    ssh_authorized_keys:
+      - ${ssh-key}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+  - name: ansible
+    groups:
+      - sudo
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh-key-ansible}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+
+package_update: true
+packages:
+  - qemu-guest-agent
+  - net-tools
+  - curl
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-custom-port.conf
+    content: |
+      Port 2222
+
+runcmd:
+  - systemctl restart ssh
+  - systemctl enable --now qemu-guest-agent

@@ -1,0 +1,4 @@
+.git
+ansible/inventory.ini
+*.tfstate*
+*.tfvars
