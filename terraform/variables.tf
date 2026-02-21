@@ -1,11 +1,6 @@
-variable "proxmox_url" {
+variable "proxmox_base_fqdn_or_ip" {
   type        = string
   description = "The URL of the Proxmox's API."
-
-  validation {
-    condition     = startswith(var.proxmox_url, "https://")
-    error_message = "URL must start with https://"
-  }
 }
 
 variable "proxmox_user" {
@@ -35,4 +30,6 @@ locals {
   alpha_ip = element(element(proxmox_virtual_environment_vm.alpha.ipv4_addresses, 1), 0)
   beta_ip = element(element(proxmox_virtual_environment_vm.beta.ipv4_addresses, 1), 0)
   charlie_ip = element(element(proxmox_virtual_environment_vm.charlie.ipv4_addresses, 1), 0)
+
+  proxmox_url = "https://${var.proxmox_base_fqdn_or_ip}/api2/json"
 }

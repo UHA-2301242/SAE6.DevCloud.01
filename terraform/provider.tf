@@ -8,7 +8,7 @@ terraform {
 }
 
 provider "proxmox" {
-  endpoint = var.proxmox_url
+  endpoint = local.proxmox_url
   username = var.proxmox_user
   password = var.proxmox_pass
   # insecure = true
@@ -19,8 +19,7 @@ provider "proxmox" {
     private_key = data.local_file.ssh_user_private_key.content
     node {
       name    = "pve"
-      address = "pve"
+      address = var.proxmox_base_fqdn_or_ip
     }
   }
 }
-
