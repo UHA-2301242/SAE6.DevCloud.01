@@ -11,7 +11,7 @@ provider "proxmox" {
   endpoint = local.proxmox_url
   username = var.proxmox_user
   password = var.proxmox_pass
-  # insecure = true
+  insecure = true
 
   ssh {
     agent       = true
